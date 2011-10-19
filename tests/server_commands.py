@@ -39,9 +39,11 @@ class TornadoTestCase(unittest.TestCase):
         CustomAssertionError.io_loop = self.loop
         self.client = brukva.Client(io_loop=self.loop)
         self.client.connection.connect()
+        self.client.select(8)
+        self.client.flushdb()
         self.client.select(9)
         self.client.flushdb()
-
+        
     def tearDown(self):
         del self.client
 
@@ -168,13 +170,13 @@ class ServerCommandsTestCase(TornadoTestCase):
     def test_type(self):
         self.client.set('a', 1, self.expect(True))
         self.client.type('a', self.expect('string'))
-        self.client.rpush('b', 1, self.expect(True))
+        self.client.rpush('b', 1, callbacks=self.expect(True))
         self.client.type('b', self.expect('list'))
         self.client.sadd('c', 1, self.expect(True))
         self.client.type('c', self.expect('set'))
         self.client.hset('d', 'a', 1, self.expect(True))
         self.client.type('d', self.expect('hash'))
-        self.client.zadd('e', 1, 1, self.expect(True))
+        self.client.zadd('e', 1, 1, callbacks=self.expect(True))
         self.client.type('e', [self.expect('zset'), self.finish])
         self.start()
 
@@ -186,12 +188,8 @@ class ServerCommandsTestCase(TornadoTestCase):
         self.start()
 
     def test_move(self):
-        self.client.select(8, self.expect(True))
-        self.client.delete('a', self.expect(True))
-        self.client.select(9, self.expect(True))
         self.client.set('a', 1, self.expect(True))
         self.client.move('a', 8, self.expect(True))
-        self.client.exists('a', self.expect(False))
         self.client.select(8, self.expect(True))
         self.client.get('a', [self.expect('1'), self.finish])
         self.start()
@@ -250,7 +248,7 @@ class ServerCommandsTestCase(TornadoTestCase):
         self.start()
 
     def test_lists(self):
-        self.client.lpush('foo', 1, self.expect(True))
+        self.client.lpush('foo', 1, callbacks=self.expect(True))
         self.client.llen('foo', self.expect(1))
         self.client.lrange('foo', 0, -1, self.expect(['1']))
         self.client.rpop('foo', self.expect('1'))
@@ -258,8 +256,8 @@ class ServerCommandsTestCase(TornadoTestCase):
         self.start()
 
     def test_brpop(self):
-        self.client.lpush('foo', 'ab', self.expect(True))
-        self.client.lpush('bar', 'cd', self.expect(True))
+        self.client.lpush('foo', 'ab', callbacks=self.expect(True))
+        self.client.lpush('bar', 'cd', callbacks=self.expect(True))
         self.client.brpop(['foo', 'bar'], 1, self.expect({'foo':'ab'}))
         self.client.llen('foo', self.expect(0))
         self.client.llen('bar', self.expect(1))
@@ -267,8 +265,8 @@ class ServerCommandsTestCase(TornadoTestCase):
         self.start()
 
     def test_brpoplpush(self):
-        self.client.lpush('foo', 'ab', self.expect(True))
-        self.client.lpush('bar', 'cd', self.expect(True))
+        self.client.lpush('foo', 'ab', callbacks=self.expect(True))
+        self.client.lpush('bar', 'cd', callbacks=self.expect(True))
         self.client.lrange('foo', 0, -1, self.expect(['ab']))
         self.client.lrange('bar', 0, -1, self.expect(['cd']))
         self.client.brpoplpush('foo', 'bar', callbacks=[self.expect('ab'), self.finish])
@@ -278,12 +276,12 @@ class ServerCommandsTestCase(TornadoTestCase):
 
     def test_sets(self):
         self.client.smembers('foo', self.expect(set()))
-        self.client.sadd('foo', 'a', self.expect(1))
-        self.client.sadd('foo', 'b', self.expect(1))
-        self.client.sadd('foo', 'c', self.expect(1))
+        self.client.sadd('foo', 'a', callbacks=self.expect(1))
+        self.client.sadd('foo', 'b', callbacks=self.expect(1))
+        self.client.sadd('foo', 'c', callbacks=self.expect(1))
         self.client.srandmember('foo', self.expect(lambda x: x in ['a', 'b', 'c']))
         self.client.scard('foo', self.expect(3))
-        self.client.srem('foo', 'a', self.expect(True))
+        self.client.srem('foo', 'a', callbacks=self.expect(True))
         self.client.smove('foo', 'bar', 'b', self.expect(True))
         self.client.smembers('bar', self.expect(set(['b'])))
         self.client.sismember('foo', 'c', self.expect(True))
@@ -291,12 +289,12 @@ class ServerCommandsTestCase(TornadoTestCase):
         self.start()
 
     def test_sets2(self):
-        self.client.sadd('foo', 'a', self.expect(1))
-        self.client.sadd('foo', 'b', self.expect(1))
-        self.client.sadd('foo', 'c', self.expect(1))
-        self.client.sadd('bar', 'b', self.expect(1))
-        self.client.sadd('bar', 'c', self.expect(1))
-        self.client.sadd('bar', 'd', self.expect(1))
+        self.client.sadd('foo', 'a', callbacks=self.expect(1))
+        self.client.sadd('foo', 'b', callbacks=self.expect(1))
+        self.client.sadd('foo', 'c', callbacks=self.expect(1))
+        self.client.sadd('bar', 'b', callbacks=self.expect(1))
+        self.client.sadd('bar', 'c', callbacks=self.expect(1))
+        self.client.sadd('bar', 'd', callbacks=self.expect(1))
 
         self.client.sdiff(['foo', 'bar'], self.expect(set(['a'])))
         self.client.sdiff(['bar', 'foo'], self.expect(set(['d'])))
@@ -305,12 +303,12 @@ class ServerCommandsTestCase(TornadoTestCase):
         self.start()
 
     def test_sets3(self):
-        self.client.sadd('foo', 'a', self.expect(1))
-        self.client.sadd('foo', 'b', self.expect(1))
-        self.client.sadd('foo', 'c', self.expect(1))
-        self.client.sadd('bar', 'b', self.expect(1))
-        self.client.sadd('bar', 'c', self.expect(1))
-        self.client.sadd('bar', 'd', self.expect(1))
+        self.client.sadd('foo', 'a', callbacks=self.expect(1))
+        self.client.sadd('foo', 'b', callbacks=self.expect(1))
+        self.client.sadd('foo', 'c', callbacks=self.expect(1))
+        self.client.sadd('bar', 'b', callbacks=self.expect(1))
+        self.client.sadd('bar', 'c', callbacks=self.expect(1))
+        self.client.sadd('bar', 'd', callbacks=self.expect(1))
 
         self.client.sdiffstore(['foo', 'bar'], 'zar', self.expect(1))
         self.client.smembers('zar', self.expect(set(['a'])))
@@ -325,8 +323,8 @@ class ServerCommandsTestCase(TornadoTestCase):
         self.start()
 
     def test_zsets(self):
-        self.client.zadd('foo', 1, 'a', self.expect(1))
-        self.client.zadd('foo', 2, 'b', self.expect(1))
+        self.client.zadd('foo', 1, 'a', callbacks=self.expect(1))
+        self.client.zadd('foo', 2, 'b', callbacks=self.expect(1))
         self.client.zscore('foo', 'a', self.expect(1))
         self.client.zscore('foo', 'b', self.expect(2))
         self.client.zrank('foo', 'a', self.expect(0))
@@ -342,29 +340,29 @@ class ServerCommandsTestCase(TornadoTestCase):
         self.client.zrevrange('foo', 0, -1, True, self.expect([('b', 3.0), ('a', 2.0)]))
         self.client.zrevrange('foo', 0, -1, False, self.expect(['b', 'a']))
         self.client.zcard('foo', [self.expect(2)])
-        self.client.zadd('foo', 3.5, 'c', self.expect(1))
+        self.client.zadd('foo', 3.5, 'c', callbacks=self.expect(1))
         self.client.zrangebyscore('foo', '-inf', '+inf', None, None, False, self.expect(['a', 'b', 'c']))
         self.client.zrangebyscore('foo', '2.1', '+inf', None, None, True, self.expect([('b', 3.0), ('c', 3.5)]))
         self.client.zrangebyscore('foo', '-inf', '3.0', 0, 1, False, self.expect(['a']))
         self.client.zrangebyscore('foo', '-inf', '+inf', 1, 2, False, self.expect(['b', 'c']))
 
         self.client.delete('foo', self.expect(True))
-        self.client.zadd('foo', 1, 'a', self.expect(1))
-        self.client.zadd('foo', 2, 'b', self.expect(1))
-        self.client.zadd('foo', 3, 'c', self.expect(1))
-        self.client.zadd('foo', 4, 'd', self.expect(1))
+        self.client.zadd('foo', 1, 'a', callbacks=self.expect(1))
+        self.client.zadd('foo', 2, 'b', callbacks=self.expect(1))
+        self.client.zadd('foo', 3, 'c', callbacks=self.expect(1))
+        self.client.zadd('foo', 4, 'd', callbacks=self.expect(1))
         self.client.zremrangebyrank('foo', 2, 4, self.expect(2))
         self.client.zremrangebyscore('foo', 0, 2, [self.expect(2), self.finish()])
 
-        self.client.zadd('a', 1, 'a1', self.expect(1))
-        self.client.zadd('a', 1, 'a2', self.expect(1))
-        self.client.zadd('a', 1, 'a3', self.expect(1))
-        self.client.zadd('b', 2, 'a1', self.expect(1))
-        self.client.zadd('b', 2, 'a3', self.expect(1))
-        self.client.zadd('b', 2, 'a4', self.expect(1))
-        self.client.zadd('c', 6, 'a1', self.expect(1))
-        self.client.zadd('c', 5, 'a3', self.expect(1))
-        self.client.zadd('c', 4, 'a4', self.expect(1))
+        self.client.zadd('a', 1, 'a1', callbacks=self.expect(1))
+        self.client.zadd('a', 1, 'a2', callbacks=self.expect(1))
+        self.client.zadd('a', 1, 'a3', callbacks=self.expect(1))
+        self.client.zadd('b', 2, 'a1', callbacks=self.expect(1))
+        self.client.zadd('b', 2, 'a3', callbacks=self.expect(1))
+        self.client.zadd('b', 2, 'a4', callbacks=self.expect(1))
+        self.client.zadd('c', 6, 'a1', callbacks=self.expect(1))
+        self.client.zadd('c', 5, 'a3', callbacks=self.expect(1))
+        self.client.zadd('c', 4, 'a4', callbacks=self.expect(1))
 
         # ZINTERSTORE
         # sum, no weight
@@ -417,7 +415,7 @@ class ServerCommandsTestCase(TornadoTestCase):
         NUM = 1000
         long_list = map(str, xrange(0, NUM))
         for i in long_list:
-            self.client.zadd('foobar', i, i, self.expect(1))
+            self.client.zadd('foobar', i, i, callbacks=self.expect(1))
         self.client.zrange('foobar', 0, NUM, with_scores=False, callbacks=[self.expect(long_list),  self.finish])
         self.start()
 
@@ -793,7 +791,6 @@ class AsyncWrapperTestCase(TornadoTestCase):
             callbacks(None)
         self.loop.add_callback(lambda: simulate(self.client, self.finish))
         self.start()
-
 
 class ReconnectTestCase(TornadoTestCase):
     def test_redis_timeout(self):

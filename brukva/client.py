@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
+from __future__ import with_statement
 import socket
 from functools import partial
 from itertools import izip
 import logging
-from collections import Iterable, defaultdict
+from collections import defaultdict #,Iterable
 import weakref
 import traceback
 
@@ -24,10 +25,10 @@ class ExecutionContext(object):
 
     def _call_callbacks(self, callbacks, value):
         if callbacks:
-            if isinstance(callbacks, Iterable):
+            try:
                 for cb in callbacks:
                     cb(value)
-            else:
+            except TypeError,e:
                 callbacks(value)
 
     def __enter__(self):
@@ -134,7 +135,7 @@ def format_pipeline_request(command_stack):
     return ''.join(format(c.cmd, *c.args, **c.kwargs) for c in command_stack)
 
 class Connection(object):
-    def __init__(self, host, port, on_connect, on_disconnect, timeout=None, io_loop=None):
+    def __init__(self, host, port, on_connect, on_disconnect, io_loop=None, timeout=None):
         self.host = host
         self.port = port
         self.on_connect = on_connect
@@ -265,7 +266,11 @@ def reply_info(response):
             return value
         sub_dict = {}
         for item in value.split(','):
-            k, v = item.split('=')
+            try:
+                k, v = item.split('=')
+            except ValueError:
+                # Ignore too many values to unpack for redis INFO command
+                pass
             try:
                 sub_dict[k] = int(v)
             except ValueError:
@@ -304,10 +309,14 @@ class _AsyncWrapper(object):
 
 class Client(object):
     def __init__(self, host='localhost', port=6379, password=None,
-            selected_db=None, io_loop=None):
+            selected_db=None, io_loop=None, timeout=None):
         self._io_loop = io_loop or IOLoop.instance()
-        self.connection = Connection(host, port,
-            self.on_connect, self.on_disconnect, io_loop=self._io_loop)
+        self.connection = Connection(host,
+                                     port,
+                                     self.on_connect,
+                                     self.on_disconnect,
+                                     io_loop=self._io_loop,
+                                     timeout=timeout)
         self.async = _AsyncWrapper(weakref.proxy(self))
         self.queue = []
         self.current_cmd_line = None
@@ -349,6 +358,12 @@ class Client(object):
 
     def __repr__(self):
         return 'Brukva client (host=%s, port=%s)' % (self.connection.host, self.connection.port)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.disconnect()
 
     def pipeline(self, transactional=False):
         if not self._pipeline:
@@ -433,7 +448,7 @@ class Client(object):
                 self.connection.disconnect()
                 raise e
 
-            if self.subscribed and cmd in ('SUBSCRIBE', 'UNSUBSCRIBE'):
+            if self.subscribed and cmd in ('SUBSCRIBE', 'UNSUBSCRIBE', 'PUNSUBSCRIBE', 'PSUBSCRIBE'):
                 self._waiting_callbacks[cmd].append(callbacks)
                 return
 
@@ -615,7 +630,16 @@ class Client(object):
     def exists(self, key, callbacks=None):
         self.execute_command('EXISTS', callbacks, key)
 
-    def sort(self, key, start=None, num=None, by=None, get=None, desc=False, alpha=False, store=None, callbacks=None):
+    def sort(self,
+             key,
+             start=None,
+             num=None,
+             by=None,
+             get=None,
+             desc=False,
+             alpha=False,
+             store=None,
+             callbacks=None):
         if (start is not None and num is None) or (num is not None and start is None):
             raise ValueError("``start`` and ``num`` must both be specified")
 
@@ -744,8 +768,13 @@ class Client(object):
         self.execute_command('SDIFFSTORE', callbacks, dst, *keys)
 
     ### SORTED SET COMMANDS
-    def zadd(self, key, score, value, callbacks=None):
-        self.execute_command('ZADD', callbacks, key, score, value)
+    def zadd(self, key, score, *values, **kwargs):
+        callbacks = kwargs.pop('callbacks', None)
+        self.execute_command('ZADD', callbacks, key, score, *values)
+
+    def zrem(self, key, *values, **kwargs):
+        callbacks = kwargs.pop('callbacks', None)
+        self.execute_command('ZREM', callbacks, key, *values)
 
     def zcard(self, key, callbacks=None):
         self.execute_command('ZCARD', callbacks, key)
@@ -758,9 +787,6 @@ class Client(object):
 
     def zrevrank(self, key, value, callbacks=None):
         self.execute_command('ZREVRANK', callbacks, key, value)
-
-    def zrem(self, key, value, callbacks=None):
-        self.execute_command('ZREM', callbacks, key, value)
 
     def zcount(self, key, start, end, offset=None, limit=None, with_scores=None, callbacks=None):
         tokens = [key, start, end]
@@ -844,8 +870,9 @@ class Client(object):
     def hget(self, key, field, callbacks=None):
         self.execute_command('HGET', callbacks, key, field)
 
-    def hdel(self, key, field, callbacks=None):
-        self.execute_command('HDEL', callbacks, key, field)
+    def hdel(self, key, *fields, **kwargs):
+        callbacks = kwargs.pop('callbacks', None)
+        self.execute_command('HDEL', callbacks, key, *fields)
 
     def hlen(self, key, callbacks=None):
         self.execute_command('HLEN', callbacks, key)
@@ -874,7 +901,7 @@ class Client(object):
 
     def _subscribe(self, cmd, channels, callbacks=None):
         callbacks = callbacks or []
-        if not isinstance(callbacks, Iterable):
+        if not hasattr(callbacks, "__iter__"):
             callbacks = [callbacks]
         if isinstance(channels, basestring):
             channels = [channels]
@@ -889,11 +916,11 @@ class Client(object):
         self._unsubscribe('UNSUBSCRIBE', channels, callbacks)
 
     def punsubscribe(self, channels, callbacks=None):
-        self._unsubscribe('UNSUBSCRIBE', channels, callbacks)
+        self._unsubscribe('PUNSUBSCRIBE', channels, callbacks)
 
     def _unsubscribe(self, cmd, channels, callbacks=None):
         callbacks = callbacks or []
-        if not isinstance(callbacks, Iterable):
+        if not hasattr(callbacks, "__iter__"):
             callbacks = [callbacks]
         if isinstance(channels, basestring):
             channels = [channels]
@@ -938,7 +965,7 @@ class Client(object):
                     if len(waiting_stack) > 0:
                         ctx.safe_call(waiting_stack.pop(0), result)
 
-                    if result.kind == 'unsubscribe' and result.body == 0:
+                    if result.kind in ('unsubscribe', 'punsubscribe') and result.body == 0:
                         self.on_unsubscribed()
                         self.connection.read_done()
                         break
