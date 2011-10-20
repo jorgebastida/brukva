@@ -457,7 +457,7 @@ class Client(object):
             if not data:
                 result = None
                 self.connection.read_done()
-                raise Exception('TODO: [no data from connection->readline')
+                raise Exception('TODO: no data from connection->readline')
             else:
                 response = yield self.process_data(data, cmd_line)
                 result = self.format_reply(cmd_line, response)
@@ -709,11 +709,21 @@ class Client(object):
     def ltrim(self, key, start, end, callbacks=None):
         self.execute_command('LTRIM', callbacks, key, start, end)
 
-    def lpush(self, key, value, callbacks=None):
-        self.execute_command('LPUSH', callbacks, key, value)
+    def lpush(self, key, values, callbacks=None):
+        if not isinstance(values, list):
+            values = [values]
+        self.execute_command('LPUSH', callbacks, key, *values)
 
-    def rpush(self, key, value, callbacks=None):
-        self.execute_command('RPUSH', callbacks, key, value)
+    def rpush(self, key, values, callbacks=None):
+        if not isinstance(values, list):
+            values = [values]
+        self.execute_command('RPUSH', callbacks, key, *values)
+
+    def rpushx(self, key, value, callbacks=None):
+        self.execute_command('RPUSHX', callbacks, key, value)
+
+    def lpushx(self, key, value, callbacks=None):
+        self.execute_command('LPUSHX', callbacks, key, value)
 
     def lpop(self, key, callbacks=None):
         self.execute_command('LPOP', callbacks, key)
@@ -725,11 +735,15 @@ class Client(object):
         self.execute_command('RPOPLPUSH', callbacks, src, dst)
 
     ### SET COMMANDS
-    def sadd(self, key, value, callbacks=None):
-        self.execute_command('SADD', callbacks, key, value)
+    def sadd(self, key, values, callbacks=None):
+        if not isinstance(values, list):
+            values = [values]
+        self.execute_command('SADD', callbacks, key, *values)
 
-    def srem(self, key, value, callbacks=None):
-        self.execute_command('SREM', callbacks, key, value)
+    def srem(self, key, values, callbacks=None):
+        if not isinstance(values, list):
+            values = [values]
+        self.execute_command('SREM', callbacks, key, *values)
 
     def scard(self, key, callbacks=None):
         self.execute_command('SCARD', callbacks, key)
@@ -768,12 +782,14 @@ class Client(object):
         self.execute_command('SDIFFSTORE', callbacks, dst, *keys)
 
     ### SORTED SET COMMANDS
-    def zadd(self, key, score, *values, **kwargs):
-        callbacks = kwargs.pop('callbacks', None)
+    def zadd(self, key, score, values, callbacks=None):
+        if not isinstance(values, list):
+            values = [values]
         self.execute_command('ZADD', callbacks, key, score, *values)
 
-    def zrem(self, key, *values, **kwargs):
-        callbacks = kwargs.pop('callbacks', None)
+    def zrem(self, key, values, callbacks=None):
+        if not isinstance(values, list):
+            values = [values]
         self.execute_command('ZREM', callbacks, key, *values)
 
     def zcard(self, key, callbacks=None):
@@ -797,9 +813,6 @@ class Client(object):
         if with_scores:
             tokens.append('WITHSCORES')
         self.execute_command('ZCOUNT', callbacks, *tokens)
-
-    def zcard(self, key, callbacks=None):
-        self.execute_command('ZCARD', callbacks, key)
 
     def zscore(self, key, value, callbacks=None):
         self.execute_command('ZSCORE', callbacks, key, value)
@@ -870,8 +883,9 @@ class Client(object):
     def hget(self, key, field, callbacks=None):
         self.execute_command('HGET', callbacks, key, field)
 
-    def hdel(self, key, *fields, **kwargs):
-        callbacks = kwargs.pop('callbacks', None)
+    def hdel(self, key, fields, callbacks=None):
+        if not isinstance(fields, list):
+            fields = [fields]
         self.execute_command('HDEL', callbacks, key, *fields)
 
     def hlen(self, key, callbacks=None):
@@ -997,7 +1011,7 @@ class Pipeline(Client):
         self.command_stack = []
 
     @process
-    def execute(self, callbacks):
+    def execute(self, callbacks=None):
         with execution_context(callbacks) as ctx:
             command_stack = self.command_stack
             self.command_stack = []
