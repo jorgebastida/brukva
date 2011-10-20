@@ -309,7 +309,7 @@ class _AsyncWrapper(object):
 
 class Client(object):
     def __init__(self, host='localhost', port=6379, password=None,
-            selected_db=None, io_loop=None, timeout=None):
+                 db=None, io_loop=None, timeout=None):
         self._io_loop = io_loop or IOLoop.instance()
         self.connection = Connection(host,
                                      port,
@@ -322,7 +322,7 @@ class Client(object):
         self.current_cmd_line = None
         self.subscribed = False
         self.password = password
-        self.selected_db = selected_db
+        self.db = db
         self.REPLY_MAP = dict_merge(
                 string_keys_to_dict('AUTH BGREWRITEAOF BGSAVE DEL EXISTS EXPIRE HDEL HEXISTS '
                                     'HMSET MOVE MSET MSETNX SAVE SETNX',
@@ -368,7 +368,7 @@ class Client(object):
     def pipeline(self, transactional=False):
         if not self._pipeline:
             self._pipeline = Pipeline(
-                selected_db=self.selected_db,
+                db=self.db,
                 io_loop = self._io_loop,
                 transactional=transactional
             )
@@ -386,8 +386,8 @@ class Client(object):
     def on_connect(self):
         if self.password:
             self.auth(self.password)
-        if self.selected_db:
-            self.select(self.selected_db)
+        if self.db:
+            self.select(self.db)
 
     def on_disconnect(self):
         if self.subscribed:
@@ -547,7 +547,7 @@ class Client(object):
         self.execute_command('INFO', callbacks)
 
     def select(self, db, callbacks=None):
-        self.selected_db = db
+        self.db = db
         self.execute_command('SELECT', callbacks, db)
 
     def shutdown(self, callbacks=None):
